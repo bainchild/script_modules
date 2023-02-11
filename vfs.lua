@@ -11,28 +11,81 @@ VFS.CurrentUserPermissions = 6;
 VFS.CurrentDirectory = VFS.Files;
 VFS.CDirPath = "/";
 
-local Stream = require(script.Stream)
-local t = require(script.t)
-local File = t.strictInterface({
-	Name = t.string;
-	Type = t.literal("File","SymLink","Pipe");
-	Content = t.union(t.callback,t.string);
-	Permissions = t.strictInterface({
-		R=t.number;
-		W=t.number;
-	});
-	Lock = t.boolean;
-})
-local Folder = t.strictInterface({
-	Name = t.string;
-	Type = t.literal("Directory");
-	Content = t.array(t.union(File,t.map(t.string,t.any))); -- How do you do recursive interfaces with t?
-	Permissions = t.strictInterface({
-		R=t.number;
-		W=t.number;
-	});
-	Lock = t.boolean;
-})
+local Stream = (function()
+local function printable(st)
+	return (st:gsub('[^%g]',function(s) return "\\"..string.byte(s) end))
+end
+local Event = require(script.Parent.Event)
+local M = {}
+M.__index=M
+function M.new(s,dbgn)
+	return setmetatable({String=s or "";Pointer=1;_dbg=dbgn;new=function()end;Flushed=Event.new("StreamFlushed");Written=Event.new("StreamWritten")},M)
+end
+function M:read(amount)
+	if self._dbg then
+		print("[STRDBG]("..tostring(self._dbg)..") read("..tostring(amount)..")\n"..debug.traceback())
+	end
+	if amount==nil then 
+		amount=1
+	elseif type(amount)=="string" then
+		if amount=="*l" then
+			local npt = -1
+			local splitted = string.split(self.String,"\n")
+			for i,v in pairs(splitted) do
+				if self.Pointer<#table.concat(splitted,1,i) and self.Pointer>npt then
+					amount=#v
+					break
+				else
+					npt=npt+#v
+				end
+			end
+		elseif amount=="*a" then
+			amount=#self.String-self.Pointer
+		end
+	end
+	local result = self.String:sub(self.Pointer,self.Pointer+(amount-1))
+	self.Pointer+=amount
+	return result
+end
+function M:write(s)
+	if self._dbg then
+		print("[STRDBG]("..tostring(self._dbg)..") write("..tostring(s)..")\n"..debug.traceback())
+	end
+	self.String..=s
+end
+function M:seek(t,a)
+	if self._dbg then
+		print("[STRDBG]("..tostring(self._dbg)..") seek(",t,a,")\n"..debug.traceback())
+	end
+	if t==nil then t="cur" end
+	if a==nil then a=0 end
+	if t=="cur" then
+		self.Pointer+=a
+	elseif t=="end" then
+		self.Pointer=#self.String+a
+	elseif t=="set" then
+		self.Pointer=a
+	end
+	return self.Pointer
+end
+function M:close()
+	if self._dbg then
+		print("[STRDBG]("..tostring(self._dbg)..") close()\n"..debug.traceback())
+	end
+	self:flush()
+	self.Flushed:Destroy()
+	setmetatable(self,{})
+	table.clear(self)
+end
+function M:flush()
+	if self._dbg then
+		print("[STRDBG]("..tostring(self._dbg)..") flush()\n"..debug.traceback())
+	end
+	self.Flushed:Fire(self.String,self)
+	-- TODO: ...
+end
+return M	
+end)()
 
 local function traverseTree(path,followSymLinks,SymLinksFollowed)
 	SymLinksFollowed=SymLinksFollowed or {}
@@ -116,7 +169,6 @@ local function newFile(options,c)
 			Lock=false;
 		}
 	end
-	assert(File(options))
 	assert(check("W",options.Name))
 	for i,v in pairs(VFS.CurrentDirectory.Content) do
 		if v.Name==options.Name and v.Type=="File" then
@@ -140,7 +192,6 @@ local function newFolder(options)
 			Lock=false;
 		}
 	end
-	assert(Folder(options))
 	assert(check("W",options.Name))
 	for i,v in pairs(VFS.CurrentDirectory.Content) do
 		if v.Name==options.Name and v.Type=="Folder" then
@@ -156,7 +207,6 @@ VFS.readfile=function(Name)
 	local s,file = traverseTree(VFS.CDirPath..Name)
 	--print(Name,s,file)
 	assert(s,"Couldn't find file "..tostring(Name).." are you sure it exists?")
-	assert((File(file)),file.Type.." is not a file.")
 	return (typeof(file.Content)=="string" and file.Content or file.Content())
 end
 VFS.isfile=function(Name)
@@ -173,7 +223,6 @@ VFS.rmfile=function(Name)
 	assert(check("W",Name))
 	local s,file,p = traverseTree(VFS.CDirPath..Name)
 	assert(s,"Couldn't find file "..tostring(Name).." are you sure it exists?")
-	assert((File(file)),file.Type.." is not a file.")
 	table.remove(p,table.find(p.Content,file))
 	return true
 end
@@ -181,7 +230,6 @@ return function(state)
 	if state==nil or type(state)~="table" then 
 		state=VFS.Files 
 	else
-		assert(Folder(state)) 
 		VFS.Files=state
 		VFS.CurrentDirectory=state
 	end
