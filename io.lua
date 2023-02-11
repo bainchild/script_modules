@@ -95,6 +95,7 @@ return Eventify
 			print("[STRDBG]("..tostring(self._dbg)..") write("..tostring(s)..")\n"..debug.traceback())
 		end
 		self.String..=s
+		self.Written:Fire(s)
 	end
 	function M:seek(t,a)
 		if self._dbg then
