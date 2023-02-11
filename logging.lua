@@ -490,8 +490,8 @@ function glue_outdent(s, newindent)
 	end
 	return concat(t, '\n'), indent
 end
-local clock = time.clock
-local time = time.time
+local clock = os.clock
+local time = os.time
 local _ = string.format
 
 local logging = {
