@@ -151,5 +151,7 @@ end
 function coro.install()
 	getfenv(1).coroutine=coro
 end
-
+function coro.get_calling_thread()
+	return callers[(coro.running())]	
+end
 return coro
