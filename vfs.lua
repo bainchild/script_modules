@@ -15,7 +15,62 @@ local Stream = (function()
 local function printable(st)
 	return (st:gsub('[^%g]',function(s) return "\\"..string.byte(s) end))
 end
-local Event = require(script.Parent.Event)
+local Event = (function()
+local Eventify = {}
+local ConnectionCache = {}
+local Event = {}
+Event.__index = Event
+
+local Connection = {}
+Connection.__index = Connection
+
+function Eventify.new(Name: string?,Defered: boolean?)
+	local NewEvent = {Defered=Defered or false}
+	setmetatable(NewEvent,Event)
+	ConnectionCache[NewEvent] = {}
+	return NewEvent
+end
+
+function Event:Connect(callback: (any) -> any)
+	local NewConnection = {}
+	setmetatable(NewConnection,Connection)
+
+	ConnectionCache[self][NewConnection] = callback
+
+	local event = self
+
+	function Connection:Disconnect()
+		ConnectionCache[event][NewConnection] = nil
+	end
+
+	return NewConnection
+end
+
+function Event:Fire(...)
+	for _,Callback in pairs(ConnectionCache[self]) do
+		(self.Defered and task.defer or task.spawn)(Callback,...)
+	end
+end
+
+function Event:Wait()
+	local IsWaiting = true
+	local Connection = self:Connect(function() IsWaiting = false end)
+	repeat task.wait() until IsWaiting == false
+	Connection:Disconnect()
+end
+
+function Event:DisconnectAll()
+	ConnectionCache[self] = {}
+end
+
+function Event:Destroy()
+	self:DisconnectAll()
+	table.clear(self)
+	setmetatable(self,{})
+end
+
+return Eventify				
+end)()
 local M = {}
 M.__index=M
 function M.new(s,dbgn)
